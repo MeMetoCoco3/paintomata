@@ -1,0 +1,6 @@
+build/*
+TODO.md
+.vs/*
+out/*
+build.bat
+assets/levels

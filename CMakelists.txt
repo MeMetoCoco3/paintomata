@@ -1,0 +1,35 @@
+cmake_minimum_required(VERSION 3.13)
+
+project(PAINTOMATA)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "")
+
+add_subdirectory("dependencies/raylib")
+add_subdirectory("dependencies/imgui")
+add_subdirectory("dependencies/rlImGui")
+
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDebug$<$<CONFIG:Debug>:Debug>") # Links cruntime library statically
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Release>:Release>")
+
+set(CMAKE_CXX_STANDARD_11)
+
+file(GLOB_RECURSE MY_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/code/*cpp")
+
+add_executable(PAINTOMATA ${MY_SOURCES})
+
+if (MSVC)
+    set(MSVC_DISABLED_WARNINGS
+        /wdC26495
+        #/wdC4244
+    )
+    target_compile_options(PAINTOMATA PRIVATE ${MSVC_DISABLE_WARNING})
+
+    #add_compile_options(${MSVC_DISABLE_WARNING})
+endif()
+
+target_include_directories(imgui PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/dependencies/raylib/src/external/glfw/include
+)
+
+
+target_include_directories(PAINTOMATA PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/dependencies/include/")
+target_link_libraries(PAINTOMATA PRIVATE rlImGui)
