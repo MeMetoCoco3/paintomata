@@ -25,42 +25,62 @@ constexpr auto NODE_COLOR_B = BLACK;
 constexpr auto ARC_COLOR = BLACK;
 constexpr auto TEXT_COLOR = BLACK;
 
+struct arc_info {
+    i32 node_id;
+    i32 arc_id;
+};
+
+struct arc {
+    arc_info info;
+    char val;
+};
+
+
 struct Node {
     NODE_KIND kind;
     vec2 position;
     f32 radius;
-    std::vector<i32> arcs;
+    std::vector<arc> arcs;
     operator bool() const { return kind != NIL; }
 
-    void add_arc (i32 arc_id) {
-        for (auto& id : arcs)
+    void add_arc (i32 node_id, i32 arc_id) {
+        for (auto& arc : arcs)
         {
-            if (id == arc_id) 
+            if (arc.info.arc_id == arc_id) 
             {
-                id = 0;
+                arc.info.arc_id = 0;
+                arc.val = ' ';
                 return;
             }
         }
 
-        arcs.push_back(arc_id);
+        arc temp_arc = {{0}, 0};
+        temp_arc.info = {node_id, arc_id};
+        //temp_arc.val = ' ';
+        arcs.push_back(temp_arc);
     }
 };
 
-constexpr auto MAX_NUM_NODES = 50;
+
 struct Mouse
 {
     bool pressed;
     vec2 pressed_pos;
     vec2 actual_pos;
     i32 selected_node_idx;
+    // [0] = node
+    // [1] = arch
+    arc_info selected_arc_info;
 };
 
 enum e_AppState {
     SELECT, 
     CREATE,
     RELATION,
+    WRITE,
 };
 
+constexpr auto MAX_NUM_NODES = 50;
 struct App {
     i32 width, height;
     std::array<Node, MAX_NUM_NODES> nodes;
@@ -74,7 +94,10 @@ struct App {
         {
             for (auto& arc: node.arcs)
             {
-                if (arc == id) arc = 0;
+                if (arc.info.arc_id == id) 
+                {
+                    arc = {{0}, 0};
+                }
             }
         }
     }
@@ -88,6 +111,30 @@ struct App {
         }
         return pnode;
     }
+
+    arc_info check_arc_collision(vec2 pos)
+    {
+        for (int i = 1; i < nodes.size(); i++)
+        {
+            const auto& node = nodes[i];
+            if (!node) continue;
+            vec2 startpos = node.position;
+            for (int j = 0; j < node.arcs.size(); j++)
+            {
+                if (!nodes[node.arcs[j].info.arc_id]) continue;
+                vec2 endpos = nodes[node.arcs[j].info.arc_id].position;
+                if (CheckCollisionPointLine({pos.x, pos.y}, { startpos.x, startpos.y }, { endpos.x, endpos.y }, 10))
+                {
+                    printf("JABUGA\n");
+                    return { i, j };
+                }
+            }
+        }
+        return {0, 0};
+    }
+
+
+
     i32 check_collision(vec2 pos)
     {
         int id = 0;
@@ -133,7 +180,7 @@ constexpr auto SCR_HEIGHT = 500;
 
 constexpr auto NODE_MIN_SIZE = 50;
 constexpr auto LINES_THIKNESS = 2;
-
+constexpr auto ARC_LABEL_FONT_SIZE = 22;
 int main(void)
 {
     App app = { 0 };
@@ -200,10 +247,27 @@ void Input(App& app)
             }
         }
     } break;
+    case WRITE: {      
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) app.state = SELECT;
+        int key = GetCharPressed();
+        if (key > 0)
+        {
+            app.nodes[app.mouse.selected_arc_info.node_id].arcs[app.mouse.selected_arc_info.arc_id].val = key;
+            app.state = SELECT;
+        }
+        
+
+
+                } break;
     case SELECT: {
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             app.mouse.selected_node_idx = app.check_collision(GetMousePositionV());
+            if (app.mouse.selected_node_idx == 0)
+            {
+                app.mouse.selected_arc_info = app.check_arc_collision(GetMousePositionV()); 
+                if (app.mouse.selected_arc_info.node_id != 0) { app.state = WRITE; }
+            }
         } 
 
 
@@ -230,7 +294,7 @@ void Input(App& app)
                 i32 id = app.check_collision(GetMousePositionV());
                 if (app.nodes[id])
                 {
-                    pnode->add_arc(id);
+                    pnode->add_arc(app.mouse.selected_node_idx, id);
                     app.mouse.selected_node_idx = 0;
                 }
             }
@@ -258,9 +322,9 @@ void Draw(App& app)
             char buff[4];
             sprintf_s(buff, "q%d", i);
             DrawText(buff, node.position.x, node.position.y, node.radius * 0.5, TEXT_COLOR);
-            for (const auto& idx: node.arcs)
+            for (const auto& arc: node.arcs)
             {
-                Node endnode = app.nodes[idx];
+                Node endnode = app.nodes[arc.info.arc_id];
                 if (!endnode) continue;
 
                 vec2 startpos = node.position;
@@ -276,6 +340,14 @@ void Draw(App& app)
                 vec2 line_end = endnode.position - Vec2xScalar(direction, endnode.radius+ 5);
                 DrawLineEx({startpos.x, startpos.y}, {line_end.x, line_end.y}, LINES_THIKNESS, ARC_COLOR);
                 
+
+                vec2 midpos = {(startpos.x + endpos.x) * 0.5f, (startpos.y + endpos.y) * 0.5f};
+                midpos.y -= 40;
+                char temp_str[2];
+                temp_str[0] = arc.val;
+                temp_str[1] = '\0';
+                DrawText(temp_str, midpos.x, midpos.y, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
+
                 const auto ArrowLength = 20.0f;
                 vec2 back = { -direction.x, -direction.y };
                 f32 angle =  30.0f * DEG2RAD;
@@ -337,6 +409,9 @@ void Draw(App& app)
         }break;
         case RELATION:{
             DrawText("R", Xpos + 6, Ypos, Size, TEXT_COLOR);
+        }break;
+        case WRITE:{
+            DrawText("W", Xpos + 6, Ypos, Size, TEXT_COLOR);
         }break;
     }
     EndDrawing();
