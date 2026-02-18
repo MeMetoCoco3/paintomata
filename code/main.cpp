@@ -11,12 +11,23 @@
 
 
 // DEFINE WAY OF DRAWING
-enum NODE_KIND: u32 {
+enum NODE_KIND: i32 {
     NIL = 0,
     NORMAL,
     INIT,
     GOAL,
 };
+
+NODE_KIND next_node_kind (NODE_KIND kind)
+{
+    i32 new_val = kind;
+    new_val += 1;
+    if(new_val > GOAL)
+    {
+        new_val = NORMAL;
+    }
+    return (NODE_KIND)new_val;
+}
 
 
 constexpr auto BACKGROUND_COLOR = RAYWHITE;
@@ -29,6 +40,7 @@ struct arc_info {
     i32 node_id;
     i32 arc_id;
 };
+
 
 struct arc {
     arc_info info;
@@ -81,6 +93,11 @@ enum e_AppState {
 };
 
 constexpr auto MAX_NUM_NODES = 50;
+constexpr auto ARC_SELF_RELATION_OFFSET = 50;
+constexpr auto NODE_GOAL_RADIUS = 40;
+constexpr auto ARROW_INIT_OFFSET = 40;
+
+
 struct App {
     i32 width, height;
     std::array<Node, MAX_NUM_NODES> nodes;
@@ -121,13 +138,25 @@ struct App {
             vec2 startpos = node.position;
             for (int j = 0; j < node.arcs.size(); j++)
             {
-                if (!nodes[node.arcs[j].info.arc_id]) continue;
-                vec2 endpos = nodes[node.arcs[j].info.arc_id].position;
-                if (CheckCollisionPointLine({pos.x, pos.y}, { startpos.x, startpos.y }, { endpos.x, endpos.y }, 10))
+                // Bezier
+                if (node.arcs[j].info.arc_id == node.arcs[j].info.node_id)
                 {
-                    printf("JABUGA\n");
-                    return { i, j };
+                    Vector2 circle_collider_pos = {node.position.x, node.position.y};
+                    circle_collider_pos.y -= node.radius; 
+                    circle_collider_pos.y -= ARC_SELF_RELATION_OFFSET * 0.5f;
+                    if(CheckCollisionPointCircle({pos.x, pos.y},  circle_collider_pos, ARC_SELF_RELATION_OFFSET * 0.6f))
+                        return { i, j };
                 }
+                else 
+                {
+                    const auto& endnode = nodes[node.arcs[j].info.arc_id];
+                    if (!endnode) continue;
+                    vec2 endpos = endnode.position;
+                    if (CheckCollisionPointLine({pos.x, pos.y}, { startpos.x, startpos.y }, { endpos.x, endpos.y }, 10))
+                        return { i, j };
+                }
+
+                
             }
         }
         return {0, 0};
@@ -174,13 +203,15 @@ struct App {
 void Input(App& app);
 void Draw(App& app);
 vec2 GetMousePositionV();
+void DrawArrow(vec2 start, vec2 end, const char arc_val);
 
 constexpr auto SCR_WIDTH = 500;
 constexpr auto SCR_HEIGHT = 500;
 
 constexpr auto NODE_MIN_SIZE = 50;
 constexpr auto LINES_THIKNESS = 2;
-constexpr auto ARC_LABEL_FONT_SIZE = 22;
+constexpr auto ARC_LABEL_FONT_SIZE = 30;
+
 int main(void)
 {
     App app = { 0 };
@@ -262,7 +293,9 @@ void Input(App& app)
     case SELECT: {
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
-            app.mouse.selected_node_idx = app.check_collision(GetMousePositionV());
+            i32 new_idx = app.check_collision(GetMousePositionV());
+            if (new_idx != app.mouse.selected_node_idx)
+                app.mouse.selected_node_idx = new_idx;
             if (app.mouse.selected_node_idx == 0)
             {
                 app.mouse.selected_arc_info = app.check_arc_collision(GetMousePositionV()); 
@@ -270,8 +303,12 @@ void Input(App& app)
             }
         } 
 
-
         Node* pnode = app.get_node_selected();
+        if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) && *pnode)
+        {
+            pnode->kind = next_node_kind(pnode->kind);
+        }
+
         if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && *pnode)
         {
             pnode->position = GetMousePositionV();
@@ -295,8 +332,8 @@ void Input(App& app)
                 if (app.nodes[id])
                 {
                     pnode->add_arc(app.mouse.selected_node_idx, id);
-                    app.mouse.selected_node_idx = 0;
                 }
+                app.mouse.selected_node_idx = 0;
             }
             else
             {
@@ -319,51 +356,89 @@ void Draw(App& app)
             DrawCircle(node.position.x, node.position.y, node.radius, NODE_COLOR_A);
             DrawCircleLines(node.position.x, node.position.y, node.radius, NODE_COLOR_B);
 
+            if (node.kind == GOAL)
+                DrawCircleLines(node.position.x, node.position.y, NODE_MIN_SIZE, NODE_COLOR_B);
+            else if (node.kind == INIT)
+            {
+                vec2 arrow_start = {node.position.x - node.radius - ARROW_INIT_OFFSET, node.position.y}; 
+                DrawArrow(arrow_start, {arrow_start.x + ARROW_INIT_OFFSET, arrow_start.y}, ' ');
+            }
             char buff[4];
             sprintf_s(buff, "q%d", i);
-            DrawText(buff, node.position.x, node.position.y, node.radius * 0.5, TEXT_COLOR);
+            DrawText(buff, node.position.x, node.position.y, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
             for (const auto& arc: node.arcs)
             {
                 Node endnode = app.nodes[arc.info.arc_id];
                 if (!endnode) continue;
-
+                    
                 vec2 startpos = node.position;
                 vec2 endpos = endnode.position;
-                vec2 direction = Vec2Dir(endpos - startpos);
-                startpos.x += direction.x * node.radius;
-                startpos.y += direction.y * node.radius;
 
-                endpos.x -= direction.x * endnode.radius;
-                endpos.y -= direction.y * endnode.radius;
+                if (arc.info.arc_id != arc.info.node_id)
+                {
+                    vec2 direction = Vec2Dir(endpos - startpos);
+                    startpos.x += direction.x * node.radius;
+                    startpos.y += direction.y * node.radius;
 
-
-                vec2 line_end = endnode.position - Vec2xScalar(direction, endnode.radius+ 5);
-                DrawLineEx({startpos.x, startpos.y}, {line_end.x, line_end.y}, LINES_THIKNESS, ARC_COLOR);
-                
-
-                vec2 midpos = {(startpos.x + endpos.x) * 0.5f, (startpos.y + endpos.y) * 0.5f};
-                midpos.y -= 40;
-                char temp_str[2];
-                temp_str[0] = arc.val;
-                temp_str[1] = '\0';
-                DrawText(temp_str, midpos.x, midpos.y, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
-
-                const auto ArrowLength = 20.0f;
-                vec2 back = { -direction.x, -direction.y };
-                f32 angle =  30.0f * DEG2RAD;
+                    endpos.x -= direction.x * endnode.radius;
+                    endpos.y -= direction.y * endnode.radius;
 
 
-
-                vec2 left = { back.x * cosf(angle) - back.y * sinf(angle), back.x * sinf(angle) + back.y * cosf(angle)};
-                vec2 right = { back.x * cosf(-angle) - back.y * sinf(-angle), back.x * sinf(-angle) + back.y * cosf(-angle)};
-        
-                left = Vec2xScalar(left, ArrowLength) + endpos;
-                right = Vec2xScalar(right, ArrowLength) + endpos;
-                
-                
-                DrawTriangle({endpos.x, endpos.y}, {left.x, left.y}, {right.x, right.y}, ARC_COLOR);
+                    vec2 line_end = endnode.position - Vec2xScalar(direction, endnode.radius+ 5);
+                    DrawArrow(startpos, line_end, arc.val);
+                    // DrawLineEx({startpos.x, startpos.y}, {line_end.x, line_end.y}, LINES_THIKNESS, ARC_COLOR);
+                    //
+                    //
+                    // vec2 midpos = {(startpos.x + endpos.x) * 0.5f, (startpos.y + endpos.y) * 0.5f};
+                    // midpos.y -= 40;
+                    // char temp_str[2];
+                    // temp_str[0] = arc.val;
+                    // temp_str[1] = '\0';
+                    // DrawText(temp_str, midpos.x, midpos.y, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
+                    //
+                    // const auto ArrowLength = 20.0f;
+                    // vec2 back = { -direction.x, -direction.y };
+                    // f32 angle =  30.0f * DEG2RAD;
+                    //
+                    //
+                    //
+                    // vec2 left = { back.x * cosf(angle) - back.y * sinf(angle), back.x * sinf(angle) + back.y * cosf(angle)};
+                    // vec2 right = { back.x * cosf(-angle) - back.y * sinf(-angle), back.x * sinf(-angle) + back.y * cosf(-angle)};
+                    //
+                    // left = Vec2xScalar(left, ArrowLength) + endpos;
+                    // right = Vec2xScalar(right, ArrowLength) + endpos;
+                    //
+                    //
+                    // DrawTriangle({endpos.x, endpos.y}, {left.x, left.y}, {right.x, right.y}, ARC_COLOR);
                 //DrawLineEx({endpos.x, endpos.x}, {arrow1.x, arrow1.y}, LINES_THIKNESS, BLUE);
                 //DrawLineEx({endpos.x, endpos.x}, {arrow2.x, arrow2.y}, LINES_THIKNESS, BLUE);
+                } 
+                else 
+                { 
+                    Vector2 temp[5];
+                    f32 angle =  30.0f * DEG2RAD;
+
+                    vec2 right = { 0 * cosf(angle) - (-1 * sinf(angle)), 0 * sinf(angle) + (-1 * cosf(angle))};
+                    vec2 left = { 0 * cosf(-angle) - (-1 * sinf(-angle)), (0 * sinf(-angle)) + (-1 * cosf(-angle))};
+                    right = Vec2xScalar(right, node.radius) + startpos;
+                    left = Vec2xScalar(left, node.radius) + startpos;
+
+                    vec2 midpos = {startpos.x, startpos.y - ARC_SELF_RELATION_OFFSET - node.radius}; 
+                    temp[0] = {startpos.x, startpos.y};
+                    temp[1] = {left.x, left.y};
+                    temp[2] = {midpos.x, midpos.y};
+                    temp[3] = {right.x, right.y};
+                    temp[4] = {startpos.x, startpos.y};
+                    DrawSplineCatmullRom(temp, 5, LINES_THIKNESS, ARC_COLOR);
+
+                    char temp_str[2];
+                    temp_str[0] = arc.val;
+                    temp_str[1] = '\0';
+                    DrawText(temp_str, midpos.x, midpos.y + 10, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
+
+                    DrawTriangle({right.x, right.y},  {right.x + 20, right.y - 20}, {right.x - 20, right.y - 20}, ARC_COLOR);
+
+                }
             }
         }
     }
@@ -423,6 +498,34 @@ vec2 GetMousePositionV()
 {
     Vector2 tmouse_pos = GetMousePosition();
     return {tmouse_pos.x, tmouse_pos.y};
+}
+
+
+void DrawArrow(vec2 start, vec2 end, const char arc_val)
+{
+    DrawLineEx({start.x, start.y}, {end.x, end.y}, LINES_THIKNESS, ARC_COLOR);
+    vec2 midpos = {(start.x + end.x) * 0.5f, (start.y + end.y) * 0.5f};
+    midpos.y -= 40;
+    char temp_str[2];
+    temp_str[0] = arc_val;
+    temp_str[1] = '\0';
+    DrawText(temp_str, midpos.x, midpos.y, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
+
+    const auto ArrowLength = 20.0f;
+
+    vec2 direction = Vec2Dir(end - start);
+    vec2 back = { -direction.x, -direction.y };
+    f32 angle =  30.0f * DEG2RAD;
+
+    vec2 left = { back.x * cosf(angle) - back.y * sinf(angle), back.x * sinf(angle) + back.y * cosf(angle)};
+    vec2 right = { back.x * cosf(-angle) - back.y * sinf(-angle), back.x * sinf(-angle) + back.y * cosf(-angle)};
+
+    left = Vec2xScalar(left, ArrowLength) + end;
+    right = Vec2xScalar(right, ArrowLength) + end;
+    
+    
+    DrawTriangle({end.x, end.y}, {left.x, left.y}, {right.x, right.y}, ARC_COLOR);
+
 }
 
 
