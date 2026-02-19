@@ -6,6 +6,7 @@
 #include <vector>
 #include <iostream>
 // TODO: Poder crear tanto arcos como nodos.
+// TODO: Si borramos uno chekear si otro tiene referencias a este
 // TODO: Poder guardar imagenes en JPG/PNG.
 // TODO: Poder hacer redo.
 
@@ -38,7 +39,7 @@ constexpr auto TEXT_COLOR = BLACK;
 
 struct arc_info {
     i32 node_id;
-    i32 arc_id;
+    i32 other_id;
 };
 
 
@@ -55,19 +56,19 @@ struct Node {
     std::vector<arc> arcs;
     operator bool() const { return kind != NIL; }
 
-    void add_arc (i32 node_id, i32 arc_id) {
+    void add_arc (i32 node_id, i32 other_id) {
         for (auto& arc : arcs)
         {
-            if (arc.info.arc_id == arc_id) 
+            if (arc.info.other_id == other_id) 
             {
-                arc.info.arc_id = 0;
+                arc.info.other_id = 0;
                 arc.val = ' ';
                 return;
             }
         }
 
         arc temp_arc = {{0}, 0};
-        temp_arc.info = {node_id, arc_id};
+        temp_arc.info = {node_id, other_id};
         //temp_arc.val = ' ';
         arcs.push_back(temp_arc);
     }
@@ -111,7 +112,7 @@ struct App {
         {
             for (auto& arc: node.arcs)
             {
-                if (arc.info.arc_id == id) 
+                if (arc.info.other_id == id) 
                 {
                     arc = {{0}, 0};
                 }
@@ -139,7 +140,7 @@ struct App {
             for (int j = 0; j < node.arcs.size(); j++)
             {
                 // Bezier
-                if (node.arcs[j].info.arc_id == node.arcs[j].info.node_id)
+                if (node.arcs[j].info.other_id == node.arcs[j].info.node_id)
                 {
                     Vector2 circle_collider_pos = {node.position.x, node.position.y};
                     circle_collider_pos.y -= node.radius; 
@@ -149,7 +150,7 @@ struct App {
                 }
                 else 
                 {
-                    const auto& endnode = nodes[node.arcs[j].info.arc_id];
+                    const auto& endnode = nodes[node.arcs[j].info.other_id];
                     if (!endnode) continue;
                     vec2 endpos = endnode.position;
                     if (CheckCollisionPointLine({pos.x, pos.y}, { startpos.x, startpos.y }, { endpos.x, endpos.y }, 10))
@@ -204,6 +205,7 @@ void Input(App& app);
 void Draw(App& app);
 vec2 GetMousePositionV();
 void DrawArrow(vec2 start, vec2 end, const char arc_val);
+void DrawArrowCatmull(vec2 v1, f32 r1, vec2 v2, f32 r2, f32 v_offset);
 
 constexpr auto SCR_WIDTH = 500;
 constexpr auto SCR_HEIGHT = 500;
@@ -221,17 +223,52 @@ int main(void)
 
     SetTargetFPS(60);
 
+    vec2 v1 = {200, 200};
+    vec2 v2 = {400, 200};
 
     while(!WindowShouldClose())
     {
         Input(app);
         Draw(app);
+        
     }
 
     CloseWindow();
 
     return 0;
 }
+
+void DrawArrowCatmull(vec2 v1, f32 r1, vec2 v2, f32 r2, f32 v_offset)
+{
+    Vector2 temp[7];
+    temp[0] = {v1.x, v1.y};
+    temp[6] = {v2.x, v1.y};
+
+    vec2 dif = v2 - v1;
+    vec2 direction = Vec2Dir(dif);
+    f32 length = Vec2Length(dif);
+    vec2 midpoint = v1 + Vec2xScalar(direction, length * 0.5f);
+    // TODO ROTATE OFFSET FOR PERPENDICULAR TO v1-v2
+    midpoint.y -= v_offset;
+    temp[3] = {midpoint.x, midpoint.y};
+    
+    vec2 trans1 = {midpoint - v1};
+    vec2 trans2 = {midpoint - v2};
+    trans1 = Vec2Dir(trans1);
+    trans2 = Vec2Dir(trans2);
+    trans1 = Vec2xScalar(trans1, r1);
+    trans2 = Vec2xScalar(trans2, r2);
+
+    temp[1] = {v1.x + trans1.x, v1.y + trans1.y};
+    temp[2] = {v1.x + trans1.x, v1.y + trans1.y};
+    temp[4] = {v2.x + trans2.x, v1.y + trans2.y};
+    temp[5] = {v2.x + trans2.x, v1.y + trans2.y};
+    DrawCircle(v1.x, v1.y, r1, GREEN);
+    DrawCircle(v2.x, v2.y, r2, DARKGREEN);
+
+    DrawSplineBezierQuadratic(temp, 7, LINES_THIKNESS, PINK);
+}
+
 
 void Input(App& app)
 {
@@ -283,7 +320,7 @@ void Input(App& app)
         int key = GetCharPressed();
         if (key > 0)
         {
-            app.nodes[app.mouse.selected_arc_info.node_id].arcs[app.mouse.selected_arc_info.arc_id].val = key;
+            app.nodes[app.mouse.selected_arc_info.node_id].arcs[app.mouse.selected_arc_info.other_id].val = key;
             app.state = SELECT;
         }
         
@@ -331,7 +368,20 @@ void Input(App& app)
                 i32 id = app.check_collision(GetMousePositionV());
                 if (app.nodes[id])
                 {
-                    pnode->add_arc(app.mouse.selected_node_idx, id);
+                    auto& other = app.nodes[id];
+                    bool other_has_arc = false;
+                    for (const auto& arc: other.arcs)
+                    {
+                        if (arc.info.other_id == app.mouse.selected_node_idx || arc.info.node_id == app.mouse.selected_node_idx)
+                        {
+                            other_has_arc = true;
+                            break;
+                        }
+                    }
+                    if (other_has_arc)
+                        other.add_arc(id, app.mouse.selected_node_idx);
+                    else
+                        pnode->add_arc(app.mouse.selected_node_idx, id);
                 }
                 app.mouse.selected_node_idx = 0;
             }
@@ -368,13 +418,13 @@ void Draw(App& app)
             DrawText(buff, node.position.x, node.position.y, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
             for (const auto& arc: node.arcs)
             {
-                Node endnode = app.nodes[arc.info.arc_id];
+                Node endnode = app.nodes[arc.info.other_id];
                 if (!endnode) continue;
                     
                 vec2 startpos = node.position;
                 vec2 endpos = endnode.position;
 
-                if (arc.info.arc_id != arc.info.node_id)
+                if (arc.info.other_id != arc.info.node_id)
                 {
                     vec2 direction = Vec2Dir(endpos - startpos);
                     startpos.x += direction.x * node.radius;
