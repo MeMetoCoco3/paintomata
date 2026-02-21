@@ -11,7 +11,6 @@
 // TODO: Poder hacer redo.
 
 
-// DEFINE WAY OF DRAWING
 enum NODE_KIND: i32 {
     NIL = 0,
     NORMAL,
@@ -201,18 +200,21 @@ struct App {
     }
 };
 
-void Input(App& app);
-void Draw(App& app);
-vec2 GetMousePositionV();
-void DrawArrow(vec2 start, vec2 end, const char arc_val);
-void DrawArrowCatmull(vec2 v1, f32 r1, vec2 v2, f32 r2, f32 v_offset);
-
 constexpr auto SCR_WIDTH = 500;
 constexpr auto SCR_HEIGHT = 500;
 
 constexpr auto NODE_MIN_SIZE = 50;
 constexpr auto LINES_THIKNESS = 2;
 constexpr auto ARC_LABEL_FONT_SIZE = 30;
+constexpr auto MAX_NUM_ARROWS_PER_NODE = 10;
+
+
+void Input(App& app);
+void Draw(App& app);
+vec2 GetMousePositionV();
+void DrawArrow(vec2 start, vec2 end, const char arc_val);
+void DrawArrowCatmull(vec2 v1, f32 r1, vec2 v2, f32 r2, f32 v_offset);
+i32 GetNumConflictingArrows(i32 current_idx, std::vector<arc> arcs, std::array<bool, MAX_NUM_ARROWS_PER_NODE> already_drawn);
 
 int main(void)
 {
@@ -397,7 +399,8 @@ void Draw(App& app)
 {
     BeginDrawing();
     ClearBackground(BACKGROUND_COLOR);
-
+    
+    std::array<bool, MAX_NUM_ARROWS_PER_NODE> already_drawn;
     for (int i = 1; i < app.nodes.size(); i++)
     {
         const auto& node = app.nodes[i];
@@ -416,16 +419,27 @@ void Draw(App& app)
             char buff[4];
             sprintf_s(buff, "q%d", i);
             DrawText(buff, node.position.x, node.position.y, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
-            for (const auto& arc: node.arcs)
-            {
-                Node endnode = app.nodes[arc.info.other_id];
-                if (!endnode) continue;
-                    
-                vec2 startpos = node.position;
-                vec2 endpos = endnode.position;
+            already_drawn = { false };
 
-                if (arc.info.other_id != arc.info.node_id)
+            for (int i = 0; i < node.arcs.size(); i++)
+            {
+                const auto& arc = node.arcs[i];
+                Node endnode = app.nodes[arc.info.other_id];
+                if (!endnode) 
+                    continue;
+
+                i32 num_arrows = GetNumConflictingArrows(i, node.arcs, already_drawn);
+                if (num_arrows==0)
                 {
+                    printf("NO ARROWS TO DRAW");
+                    continue;
+                }
+
+                // DRAW FIRST OR ONLY
+                if(num_arrows % 2 != 0 && arc.info.other_id != arc.info.node_id)
+                {
+                    vec2 startpos = node.position;
+                    vec2 endpos = endnode.position;
                     vec2 direction = Vec2Dir(endpos - startpos);
                     startpos.x += direction.x * node.radius;
                     startpos.y += direction.y * node.radius;
@@ -436,35 +450,11 @@ void Draw(App& app)
 
                     vec2 line_end = endnode.position - Vec2xScalar(direction, endnode.radius+ 5);
                     DrawArrow(startpos, line_end, arc.val);
-                    // DrawLineEx({startpos.x, startpos.y}, {line_end.x, line_end.y}, LINES_THIKNESS, ARC_COLOR);
-                    //
-                    //
-                    // vec2 midpos = {(startpos.x + endpos.x) * 0.5f, (startpos.y + endpos.y) * 0.5f};
-                    // midpos.y -= 40;
-                    // char temp_str[2];
-                    // temp_str[0] = arc.val;
-                    // temp_str[1] = '\0';
-                    // DrawText(temp_str, midpos.x, midpos.y, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
-                    //
-                    // const auto ArrowLength = 20.0f;
-                    // vec2 back = { -direction.x, -direction.y };
-                    // f32 angle =  30.0f * DEG2RAD;
-                    //
-                    //
-                    //
-                    // vec2 left = { back.x * cosf(angle) - back.y * sinf(angle), back.x * sinf(angle) + back.y * cosf(angle)};
-                    // vec2 right = { back.x * cosf(-angle) - back.y * sinf(-angle), back.x * sinf(-angle) + back.y * cosf(-angle)};
-                    //
-                    // left = Vec2xScalar(left, ArrowLength) + endpos;
-                    // right = Vec2xScalar(right, ArrowLength) + endpos;
-                    //
-                    //
-                    // DrawTriangle({endpos.x, endpos.y}, {left.x, left.y}, {right.x, right.y}, ARC_COLOR);
-                //DrawLineEx({endpos.x, endpos.x}, {arrow1.x, arrow1.y}, LINES_THIKNESS, BLUE);
-                //DrawLineEx({endpos.x, endpos.x}, {arrow2.x, arrow2.y}, LINES_THIKNESS, BLUE);
+                    num_arrows -= 1;
                 } 
-                else 
+                else if (arc.info.other_id == arc.info.node_id)
                 { 
+                    vec2 startpos = node.position;
                     Vector2 temp[5];
                     f32 angle =  30.0f * DEG2RAD;
 
@@ -487,8 +477,25 @@ void Draw(App& app)
                     DrawText(temp_str, midpos.x, midpos.y + 10, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
 
                     DrawTriangle({right.x, right.y},  {right.x + 20, right.y - 20}, {right.x - 20, right.y - 20}, ARC_COLOR);
-
+                    num_arrows -= 1;
                 }
+
+                f32 v_offset = ARC_SELF_RELATION_OFFSET;
+                for(int j = 0; j < node.arcs.size(); i++)
+                {
+                   if (already_drawn[j]) continue;
+                   auto &other = node.arcs[j];
+                   bool point_same = (other.info.other_id == node.arcs[j].info.other_id && other.info.node_id == node.arcs[j].info.node_id);
+                   bool point_other = (other.info.other_id == node.arcs[j].info.node_id && other.info.node_id == node.arcs[j].info.other_id);
+                   if (point_other || point_same)
+                   {
+                        const Node& nodeA = app.nodes[node.arcs[j].info.node_id];
+                        const Node& nodeB= app.nodes[node.arcs[j].info.node_id];
+                        DrawArrowCatmull(nodeA.position, nodeA.radius, nodeB.position, nodeB.radius, v_offset);
+                        // CHANGE OFFSETS HERE
+                   }
+                }
+
             }
         }
     }
@@ -578,4 +585,24 @@ void DrawArrow(vec2 start, vec2 end, const char arc_val)
 
 }
 
+i32 GetNumConflictingArrows(i32 current_idx, std::vector<arc> arcs, std::array<bool, MAX_NUM_ARROWS_PER_NODE> already_drawn)
+{
+    already_drawn[current_idx] = true;
+    int count = 1; 
+
+    auto &current = arcs[current_idx];
+    for(int i = 0; i < arcs.size(); i++)
+    {
+       if (already_drawn[i]) continue;
+       auto &other = arcs[i];
+       bool point_same = (other.info.other_id == current.info.other_id && other.info.node_id == current.info.node_id);
+       bool point_other = (other.info.other_id == current.info.node_id && other.info.node_id == current.info.other_id);
+       if (point_other || point_same)
+       {
+            already_drawn[i] = true;
+            count++;
+       }
+    }
+    return count;
+}
 
