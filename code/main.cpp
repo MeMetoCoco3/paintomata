@@ -5,11 +5,6 @@
 #include <cstdio>
 #include <vector>
 #include <iostream>
-// TODO: Poder crear tanto arcos como nodos.
-// TODO: Si borramos uno chekear si otro tiene referencias a este
-// TODO: Poder guardar imagenes en JPG/PNG.
-// TODO: Poder hacer redo.
-
 
 enum NODE_KIND: i32 {
     NIL = 0,
@@ -56,16 +51,6 @@ struct Node {
     operator bool() const { return kind != NIL; }
 
     void add_arc (i32 node_id, i32 other_id) {
-        // for (auto& arc : arcs)
-        // {
-        //     if (arc.info.other_id == other_id) 
-        //     {
-        //         arc.info.other_id = 0;
-        //         arc.val = ' ';
-        //         return;
-        //     }
-        // }
-
         arc temp_arc = {{0}, 0};
         temp_arc.info = {node_id, other_id};
         temp_arc.val = 'A';
@@ -218,7 +203,7 @@ void Input(App& app);
 void Draw(App& app);
 vec2 GetMousePositionV();
 void DrawArrow(vec2 start, vec2 end, const char arc_val);
-void DrawArrowCatmull(vec2 v1, f32 r1, vec2 v2, f32 r2, f32 v_offset);
+void DrawArrowCatmull(vec2 v1, f32 r1, vec2 v2, f32 r2, f32 v_offset, const char val);
 void DrawConflictingArrows(App &app, i32 current_idx, std::vector<arc> arcs, std::array<bool, MAX_NUM_ARROWS_PER_NODE> &already_drawn);
 
 int main(void)
@@ -238,15 +223,7 @@ int main(void)
         
         Input(app);
         Draw(app);
-        // vec2 c1 = {100, var};
-        // vec2 c2 = {400, 200};
-        // BeginDrawing();
-        // ClearBackground(RAYWHITE);
-        // DrawCircle(c1.x, c1.y, 20.0f, RED);
-        // DrawCircle(c2.x, c2.y, 20.0f, RED);
-        // DrawArrowCatmull(c1, 20, c2, 20, 80);
-        // EndDrawing();
-        // printf("%02f\n", var);
+
     }
 
     CloseWindow();
@@ -255,7 +232,7 @@ int main(void)
 }
 
 
-void DrawArrowCatmull(vec2 v1, f32 r1, vec2 v2, f32 r2, f32 v_offset)
+void DrawArrowCatmull(vec2 v1, f32 r1, vec2 v2, f32 r2, f32 v_offset, const char val)
 {
     Vector2 temp[5];
 
@@ -299,7 +276,10 @@ void DrawArrowCatmull(vec2 v1, f32 r1, vec2 v2, f32 r2, f32 v_offset)
 
     DrawTriangle({temp[3].x, temp[3].y}, {left.x, left.y}, {right.x, right.y}, ARC_COLOR);
 
-
+    char temp_str[2];
+    temp_str[0] = val;
+    temp_str[1] = '\0';
+    DrawText(temp_str, midpoint.x, midpoint.y + 10, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
 }
 
 
@@ -575,50 +555,56 @@ void DrawConflictingArrows(App &app, i32 current_idx, std::vector<arc> arcs, std
     if((arcs_to_draw_idx % 2 != 0 || arcs_to_draw_idx == 1) && current.info.other_id != current.info.node_id)
     {
         already_drawn[current_idx] = true;
-
-        vec2 direction = Vec2Dir(endpos - startpos);
-        startpos.x += direction.x * start.radius;
-        startpos.y += direction.y * start.radius;
-
-        endpos.x -= direction.x * end.radius;
-        endpos.y -= direction.y * end.radius;
-
-
-        vec2 line_end = end.position - Vec2xScalar(direction, end.radius+ 5);
-        DrawArrow(startpos, line_end, current.val);
         start_index += 1;
+
+        if (start && end)
+        {
+            vec2 direction = Vec2Dir(endpos - startpos);
+            startpos.x += direction.x * start.radius;
+            startpos.y += direction.y * start.radius;
+
+            endpos.x -= direction.x * end.radius;
+            endpos.y -= direction.y * end.radius;
+
+
+            vec2 line_end = end.position - Vec2xScalar(direction, end.radius+ 5);
+            DrawArrow(startpos, line_end, current.val);
+        }
     } 
     else if (current.info.other_id == current.info.node_id)
     { 
         already_drawn[current_idx] = true;
-
-        Vector2 temp[5];
-        f32 angle =  30.0f * DEG2RAD;
-
-        vec2 right = { 0 * cosf(angle) - (-1 * sinf(angle)), 0 * sinf(angle) + (-1 * cosf(angle))};
-        vec2 left = { 0 * cosf(-angle) - (-1 * sinf(-angle)), (0 * sinf(-angle)) + (-1 * cosf(-angle))};
-        right = Vec2xScalar(right, end.radius) + startpos;
-        left = Vec2xScalar(left, end.radius) + startpos;
-
-        vec2 midpos = {startpos.x, startpos.y - ARC_SELF_RELATION_OFFSET - start.radius}; 
-        temp[0] = {startpos.x, startpos.y};
-        temp[1] = {left.x, left.y};
-        temp[2] = {midpos.x, midpos.y};
-        temp[3] = {right.x, right.y};
-        temp[4] = {startpos.x, startpos.y};
-        DrawSplineCatmullRom(temp, 5, LINES_THIKNESS, ARC_COLOR);
-
-        char temp_str[2];
-        temp_str[0] = current.val;
-        temp_str[1] = '\0';
-        DrawText(temp_str, midpos.x, midpos.y + 10, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
-
-        DrawTriangle({right.x, right.y},  {right.x + 20, right.y - 20}, {right.x - 20, right.y - 20}, ARC_COLOR);
         start_index += 1;
+        
+        if (start && end)
+        {
+            Vector2 temp[5];
+            f32 angle =  30.0f * DEG2RAD;
+
+            vec2 right = { 0 * cosf(angle) - (-1 * sinf(angle)), 0 * sinf(angle) + (-1 * cosf(angle))};
+            vec2 left = { 0 * cosf(-angle) - (-1 * sinf(-angle)), (0 * sinf(-angle)) + (-1 * cosf(-angle))};
+            right = Vec2xScalar(right, end.radius) + startpos;
+            left = Vec2xScalar(left, end.radius) + startpos;
+
+            vec2 midpos = {startpos.x, startpos.y - ARC_SELF_RELATION_OFFSET - start.radius}; 
+            temp[0] = {startpos.x, startpos.y};
+            temp[1] = {left.x, left.y};
+            temp[2] = {midpos.x, midpos.y};
+            temp[3] = {right.x, right.y};
+            temp[4] = {startpos.x, startpos.y};
+            DrawSplineCatmullRom(temp, 5, LINES_THIKNESS, ARC_COLOR);
+
+            char temp_str[2];
+            temp_str[0] = current.val;
+            temp_str[1] = '\0';
+            DrawText(temp_str, midpos.x, midpos.y + 10, ARC_LABEL_FONT_SIZE, TEXT_COLOR);
+
+            DrawTriangle({right.x, right.y},  {right.x + 20, right.y - 20}, {right.x - 20, right.y - 20}, ARC_COLOR);
+        }
     }
 
     f32 v_offset = ARC_SELF_RELATION_OFFSET;
-    int last_start_id_drawn = current.info.node_id;
+    int last_start_id_drawn = arcs_to_draw[start_index].info.node_id;
     for(int i = start_index; i < arcs_to_draw_idx; i ++)
     {
         if (already_drawn[i]) continue;
@@ -626,11 +612,11 @@ void DrawConflictingArrows(App &app, i32 current_idx, std::vector<arc> arcs, std
         if (last_start_id_drawn == arcs_to_draw[i].info.node_id) 
         {
             v_offset = -v_offset;
-            last_start_id_drawn = arcs_to_draw[i].info.node_id;
         }
         const Node& nodeA = app.nodes[arcs_to_draw[i].info.node_id];
-        const Node& nodeB= app.nodes[arcs_to_draw[i].info.other_id];
-        DrawArrowCatmull(nodeA.position, nodeA.radius, nodeB.position, nodeB.radius, v_offset);
+        const Node& nodeB = app.nodes[arcs_to_draw[i].info.other_id];
+        if (nodeA && nodeB)
+            DrawArrowCatmull(nodeA.position, nodeA.radius, nodeB.position, nodeB.radius, v_offset, arcs_to_draw[i].val);
 
         already_drawn[i] = true;
     }
